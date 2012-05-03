@@ -26,12 +26,16 @@ public class ReinforcementAgent extends Agent {
 	private List<Integer> footmenIDs = new ArrayList<Integer>();
 	private List<Integer> myFootmen = new ArrayList<Integer>();
 	private List<Integer> enemyFootmen = new ArrayList<Integer>();
+	private HashMap<Integer, Integer> healths = new HashMap<Integer, Integer>();
 	private int episodeNum = 10;
 	private int episodeCount = 0;
 	private int turnCount = 0;
+	private int initSize = 0;
+	private int totalTurns = 0;
 	private List<ArrayList<turnInstance>> attackRewardsMap = new ArrayList<ArrayList<turnInstance>>();
 	private int myfootmanStartHealth, myfootmanStartCount, enemyfootmanStartHealth, enemyfootmanStartCount;
 	private static int footmanDeathWorth = 100;
+	private int totalScore = 0;
 	
 	// Constructor
 	public ReinforcementAgent(int playernum, String[] args) throws FileNotFoundException, IOException, BackingStoreException{
@@ -61,7 +65,6 @@ public class ReinforcementAgent extends Agent {
 		//Updates the list of footmen
 		updateFootmen(state);
 		//Print health
-		printHealth(state, myFootmen);
 		
 		if(turnCount == 0) { //Calculating initial values for rewards calculations
 			//resetting the values to 0
@@ -69,9 +72,10 @@ public class ReinforcementAgent extends Agent {
 			//getting the count of the footmen for each side
 			myfootmanStartCount = myFootmen.size();
 			enemyfootmanStartCount = enemyFootmen.size();
-			//calculating total startin HP for each side
+			//calculating total starting HP for each side
 			for( Integer id : myFootmen) { myfootmanStartHealth += state.getUnit(id).getHP(); }
 			for( Integer id : enemyFootmen) { enemyfootmanStartHealth += state.getUnit(id).getHP(); }
+			initSize = myFootmen.size();
 		}
 		else { calcPreviousReward(state); }
 		
@@ -80,6 +84,7 @@ public class ReinforcementAgent extends Agent {
 		{
 			Action attack = qLearning(state, ID, attacks);
 			actions.put(ID, attack);
+			healths.put(ID, state.getUnit(ID).getHP()); //update to current health
 		}
 		//adding this turn (a turnInstance) to the rewardsMap
 		attackRewardsMap.get(episodeCount).add(new turnInstance(attacks, 0, myfootmanStartHealth, enemyfootmanStartHealth));
@@ -92,20 +97,62 @@ public class ReinforcementAgent extends Agent {
 	//Terminal Step
 	public void terminalStep(StateView state) { 
 		episodeCount += 1; //Counting the episodes
+		totalTurns += turnCount;
+		if (episodeCount % 10 == 0)
+		{
+			System.out.printf("Games Played\t Average Cumulative Reward\n%d \t\t%d\n", episodeCount, -1000 - (totalScore / totalTurns));
+			totalTurns = 0;
+		}
 		turnCount = 0; //resetting the count of the turns (should start from zero for each episode)
 	}
 	
 	//qLearning algorithm
 	public Action qLearning(StateView state, Integer currentFootmenID, List<attackInstance> attacks) {
 		List<Action> actionsList = getListOfPossibleActions(state, currentFootmenID);
-		int randIndex = (int)(Math.random()*actionsList.size());
+		int modulus = -(episodeNum - episodeCount);
+		int index;
+		int footmanI = myFootmen.indexOf(currentFootmenID) + 1;
+		if (footmanI > 5)
+			index = enemyFootmen.size() - 1;
+		else
+			index = 0;
+		Integer previousHealth = healths.get(currentFootmenID);
+		int currentHealth = state.getUnit(currentFootmenID).getHP();
+		int deltaHealth = 0;
 		
-		if(turnCount > 0) {
-			attacks.add(new attackInstance(currentFootmenID, enemyFootmen.get(randIndex)));
+		if(previousHealth != null)
+			deltaHealth = currentHealth - previousHealth;
+		if (turnCount > 0)
+		{
+			if (deltaHealth <  modulus)
+				index = returnFarthest(currentFootmenID, state);
 		}
 		
-		return actionsList.get(randIndex);
+		attacks.add(new attackInstance(currentFootmenID, enemyFootmen.get(index)));
+		return actionsList.get(index);
 		//return Action.createCompoundAttack(currentFootmenID, enemyFootmen.get(0)); //what you defaulted to originally
+	}
+	
+	public int returnFarthest(Integer footmanID, StateView state){
+		int furthestD = -100;
+		int furthestID = -1;
+		UnitView myUnit = state.getUnit(footmanID);
+		int count = 0;
+		
+		for (Integer ID : enemyFootmen){
+			UnitView enemyUnit = state.getUnit(ID);
+			
+			int distance = DistanceMetrics.chebyshevDistance(myUnit.getXPosition(), myUnit.getYPosition(), enemyUnit.getXPosition(), enemyUnit.getYPosition());
+			
+			if (distance > furthestD)
+			{
+				furthestD = distance;
+				furthestID = count;
+			}
+			count++;
+		}
+		
+		return furthestID;
 	}
 	
 	//calculate the reward for the previous set of actions/attacks
@@ -132,8 +179,7 @@ public class ReinforcementAgent extends Agent {
 			t.reward -= (myfootmanStartCount - myFootmen.size()) * footmanDeathWorth;
 			t.reward += (enemyfootmanStartCount - enemyFootmen.size()) * footmanDeathWorth;
 		}
-		
-		System.out.println("reward: " + t.reward);
+		totalScore += t.reward;
 	}
 	
 	//returns a list of ALL possible actions for a specific friendly footmen
@@ -148,7 +194,6 @@ public class ReinforcementAgent extends Agent {
 	//Prints out the health of the friendly footmen
 	public void printHealth(StateView state, List<Integer> footmenList)
 	{
-		System.out.print("Health:");
 		for(int i = 0; i < footmenList.size(); i++)
 		{
 			System.out.print(" " + state.getUnit(footmenList.get(i)).getHP());
