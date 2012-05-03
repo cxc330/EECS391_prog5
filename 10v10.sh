@@ -1,0 +1,3 @@
+javac -cp 'lib/SimpleRTSv3.1.jar'  src/edu/cwru/SimpleRTS/agent/ReinforcementAgent.java src/edu/cwru/SimpleRTS/agent/turnInstance.java src/edu/cwru/SimpleRTS/agent/attackInstance.java
+
+java -cp lib/SimpleRTSv3.1.jar:src edu.cwru.SimpleRTS.Main --config data/defaultConfig.xml data/rl_10fv10f.map --agent edu.cwru.SimpleRTS.agent.ReinforcementAgent 0 --agentparam 50 --agent edu.cwru.SimpleRTS.agent.visual.VisualAgent 0 --agentparam true --agentparam true --agent  CombatAgent 1

@@ -1,6 +1,8 @@
 package edu.cwru.SimpleRTS.agent;
-
 import java.util.*;
+import java.util.prefs.BackingStoreException;
+import java.util.prefs.Preferences;
+import java.io.*;
 
 import edu.cwru.SimpleRTS.action.*;
 import edu.cwru.SimpleRTS.environment.State.StateView;
@@ -24,74 +26,177 @@ public class ReinforcementAgent extends Agent {
 	private List<Integer> footmenIDs = new ArrayList<Integer>();
 	private List<Integer> myFootmen = new ArrayList<Integer>();
 	private List<Integer> enemyFootmen = new ArrayList<Integer>();
-
+	private int episodeNum = 10;
+	private int episodeCount = 0;
+	private int turnCount = 0;
+	private List<ArrayList<turnInstance>> attackRewardsMap = new ArrayList<ArrayList<turnInstance>>();
+	private int myfootmanStartHealth, myfootmanStartCount, enemyfootmanStartHealth, enemyfootmanStartCount;
+	private static int footmanDeathWorth = 100;
+	
 	// Constructor
-	public ReinforcementAgent(int playernum, String[] args) {
+	public ReinforcementAgent(int playernum, String[] args) throws FileNotFoundException, IOException, BackingStoreException{
 		super(playernum);
-
+		episodeNum = Integer.parseInt(args[0]);
+		episodeNum = (episodeNum/10) * 15 + (episodeNum%10);
+		Preferences prefs = Preferences.userRoot().node("edu").node("cwru").node("SimpleRTS");
+		configureEnvPrefs(prefs);
+		configureModelPrefs(prefs);
+		prefs.exportSubtree(System.out);
+		prefs.exportSubtree(new FileOutputStream("data/defaultConfig.xml"));
 	}
 
 	// Below is the initialStep and setup for our agent
-
 	public Map<Integer, Action> initialStep(StateView state) {
-
+		attackRewardsMap.add(new ArrayList<turnInstance>());
+		//Updates the list of footmen
+		//updateFootmen(state);
 		return middleStep(state);
 	}
 
 	// Below is the middleStep function where the majority of the logic works
 	public Map<Integer, Action> middleStep(StateView state) {
-
-		Map<Integer, Action> actions = new HashMap<Integer, Action>();
+		Map<Integer, Action> actions = new HashMap<Integer, Action>(); //actions to return
+		List<attackInstance> attacks = new ArrayList<attackInstance>(); //List of attackInstances to store in the "rewardsMap"
+		
+		//Updates the list of footmen
 		updateFootmen(state);
-
-		for (Integer ID : myFootmen) {
-
-			Action attack = Action
-					.createCompoundAttack(ID, enemyFootmen.get(0));
-
+		//Print health
+		printHealth(state, myFootmen);
+		
+		if(turnCount == 0) { //Calculating initial values for rewards calculations
+			//resetting the values to 0
+			myfootmanStartHealth = 0; enemyfootmanStartHealth = 0;
+			//getting the count of the footmen for each side
+			myfootmanStartCount = myFootmen.size();
+			enemyfootmanStartCount = enemyFootmen.size();
+			//calculating total startin HP for each side
+			for( Integer id : myFootmen) { myfootmanStartHealth += state.getUnit(id).getHP(); }
+			for( Integer id : enemyFootmen) { enemyfootmanStartHealth += state.getUnit(id).getHP(); }
+		}
+		else { calcPreviousReward(state); }
+		
+		
+		for (Integer ID : myFootmen)
+		{
+			Action attack = qLearning(state, ID, attacks);
 			actions.put(ID, attack);
 		}
+		//adding this turn (a turnInstance) to the rewardsMap
+		attackRewardsMap.get(episodeCount).add(new turnInstance(attacks, 0, myfootmanStartHealth, enemyfootmanStartHealth));
+		
+		turnCount++;
+		
 		return actions;
 	}
 
-	public void terminalStep(StateView state) {
+	//Terminal Step
+	public void terminalStep(StateView state) { 
+		episodeCount += 1; //Counting the episodes
+		turnCount = 0; //resetting the count of the turns (should start from zero for each episode)
 	}
-
-	/*
-	 * Updates footmen lists
-	 */
+	
+	//qLearning algorithm
+	public Action qLearning(StateView state, Integer currentFootmenID, List<attackInstance> attacks) {
+		List<Action> actionsList = getListOfPossibleActions(state, currentFootmenID);
+		int randIndex = (int)(Math.random()*actionsList.size());
+		
+		if(turnCount > 0) {
+			attacks.add(new attackInstance(currentFootmenID, enemyFootmen.get(randIndex)));
+		}
+		
+		return actionsList.get(randIndex);
+		//return Action.createCompoundAttack(currentFootmenID, enemyFootmen.get(0)); //what you defaulted to originally
+	}
+	
+	//calculate the reward for the previous set of actions/attacks
+	public void calcPreviousReward(StateView state)
+	{
+		turnInstance t;
+		int mycurrentFootmenHealth = 0;
+		int currentenemyFootmenHealth = 0;
+		t = attackRewardsMap.get(episodeCount).get(attackRewardsMap.get(episodeCount).size()-1);
+		for( Integer id : myFootmen) { mycurrentFootmenHealth += state.getUnit(id).getHP(); }
+		for( Integer id : enemyFootmen) { currentenemyFootmenHealth += state.getUnit(id).getHP(); }
+		
+		if(attackRewardsMap.get(episodeCount).size() < 2)
+		{
+			t.reward += mycurrentFootmenHealth - myfootmanStartHealth;
+			t.reward += enemyfootmanStartHealth - currentenemyFootmenHealth;
+			t.reward -= (myfootmanStartCount - myFootmen.size()) * footmanDeathWorth;
+			t.reward += (enemyfootmanStartCount - enemyFootmen.size()) * footmanDeathWorth;
+		}
+		else
+		{
+			t.reward += mycurrentFootmenHealth - attackRewardsMap.get(episodeCount).get(attackRewardsMap.get(episodeCount).size()-2).myTotalHealth;
+			t.reward += currentenemyFootmenHealth - attackRewardsMap.get(episodeCount).get(attackRewardsMap.get(episodeCount).size()-2).enemyTotalHealth;
+			t.reward -= (myfootmanStartCount - myFootmen.size()) * footmanDeathWorth;
+			t.reward += (enemyfootmanStartCount - enemyFootmen.size()) * footmanDeathWorth;
+		}
+		
+		System.out.println("reward: " + t.reward);
+	}
+	
+	//returns a list of ALL possible actions for a specific friendly footmen
+	public List<Action> getListOfPossibleActions(StateView state, Integer currentFootmenID) {
+		List<Action> ListOfPossibleActions = new ArrayList<Action>();
+		for(Integer enemyFootman : enemyFootmen) {
+			ListOfPossibleActions.add(Action.createCompoundAttack(currentFootmenID, enemyFootman));
+		}
+		return ListOfPossibleActions;
+	}
+	
+	//Prints out the health of the friendly footmen
+	public void printHealth(StateView state, List<Integer> footmenList)
+	{
+		System.out.print("Health:");
+		for(int i = 0; i < footmenList.size(); i++)
+		{
+			System.out.print(" " + state.getUnit(footmenList.get(i)).getHP());
+		}
+		System.out.println();
+	}
+	
+	//Updates footmen lists
 	public void updateFootmen(StateView state) {
 		footmenIDs = findUnitType(state.getAllUnitIds(), state, footmen);
 		myFootmen = new ArrayList<Integer>();
 		enemyFootmen = new ArrayList<Integer>();
-
+		
 		for (Integer ID : footmenIDs) {
-			UnitView footman = state.getUnit(ID);
-
-			int playerNum = footman.getTemplateView().getPlayer();
-
-			if (playerNum == playernum)
+			if (state.getUnit(ID).getTemplateView().getPlayer() == playernum)
 				myFootmen.add(ID);
 			else
 				enemyFootmen.add(ID);
-
 		}
 	}
 
-	public List<Integer> findUnitType(List<Integer> ids, StateView state,
-			String name) {
-
+	//returns the list of IDs in the world for the specific unit type.
+	public List<Integer> findUnitType(List<Integer> ids, StateView state, String name) {
 		List<Integer> unitIds = new ArrayList<Integer>();
 
 		for (int x = 0; x < ids.size(); x++) {
 			Integer unitId = ids.get(x);
 			UnitView unit = state.getUnit(unitId);
 
-			if (unit.getTemplateView().getUnitName().equals(name)) {
+			if (unit.getTemplateView().getUnitName().equals(name))
 				unitIds.add(unitId);
-			}
 		}
-
 		return unitIds;
+	}
+	
+	//Configuration XML setting - environment node
+	private void configureEnvPrefs(Preferences prefs) throws BackingStoreException {
+		Preferences envPrefs = prefs.node("environment");
+		envPrefs.clear();
+		envPrefs.putInt("NumEpisodes",episodeNum);		
+	}
+	//Configuration XML setting - model node
+	private void configureModelPrefs(Preferences prefs) throws BackingStoreException {
+		Preferences modelPrefs = prefs.node("model");
+		modelPrefs.clear();
+		modelPrefs.putBoolean("Conquest", true);
+		modelPrefs.putBoolean("Midas", false);
+		modelPrefs.putBoolean("ManifestDestiny", false);
+		modelPrefs.putInt("TimeLimit", 65535);
 	}
 }
