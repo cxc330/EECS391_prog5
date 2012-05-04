@@ -26,6 +26,7 @@ public class ReinforcementAgent extends Agent {
 	private List<Integer> footmenIDs = new ArrayList<Integer>();
 	private List<Integer> myFootmen = new ArrayList<Integer>();
 	private List<Integer> enemyFootmen = new ArrayList<Integer>();
+	private ArrayList<Integer> scores = new ArrayList<Integer>();
 	private HashMap<Integer, Integer> healths = new HashMap<Integer, Integer>();
 	private int episodeNum = 10;
 	private int episodeCount = 0;
@@ -100,8 +101,19 @@ public class ReinforcementAgent extends Agent {
 		totalTurns += turnCount;
 		if (episodeCount % 10 == 0)
 		{
-			System.out.printf("Games Played\t Average Cumulative Reward\n%d \t\t%d\n", episodeCount, -1000 - (totalScore / totalTurns));
+			int score = -1000 - (totalScore / totalTurns);
+			System.out.printf("Games Played\t Average Cumulative Reward\n%d \t\t%d\n", episodeCount, score);
+			scores.add(score);
 			totalTurns = 0;
+		}
+		if (episodeCount == episodeNum)
+		{
+			int count = 0;
+			for (Integer score : scores)
+			{
+				count++;
+				System.out.printf("Games Played\t Average Cumulative Reward\n%d \t\t%d\n", count, score);
+			}
 		}
 		turnCount = 0; //resetting the count of the turns (should start from zero for each episode)
 	}
